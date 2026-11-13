@@ -1,0 +1,28 @@
+/* ---------- stage ---------- */
+.stage {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  height: 100%;
+}
+.layer {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  pointer-events: none;
+  user-select: none;
+  will-change: transform, opacity;
+}
+.stage-hint {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #b9bdb1;
+  font-size: 22px;
+  pointer-events: none;
+  text-align: center;
+  padding: 20px;
+}
+
