@@ -5,8 +5,12 @@ Lightweight PNGtuber app (Tauri 2 + React + Rust), inspired by veadotube mini.
 - Avatar library (home screen) with autosave; the editor opens only via "Custom"
 - Multiple image layers per state
 - Voice ranges: several volume bands per state (e.g. silent / talking / shouting); each layer picks its own image, blink image and animation per range
-- Keyframe curve editor (bezier handles) per animated property: X, Y, rotation, scale X/Y, opacity
-- Sprite track: swap images frame by frame over the clip time (e.g. mouth open/closed), plus a sample avatar ("+ Avatar mẫu (GIF)") with 2 sprites and squash & stretch
+- Move / resize / rotate layers directly on the editor preview; placement is set per voice range
+- Keyframe curve editor (bezier handles) per animated property: X, Y, rotation, scale X/Y, opacity; zoom (wheel) and pan (right/middle drag)
+- Own animation presets, shared by all avatars
+- Image transitions between ranges and states: crossfade, fade through, pop
+- Unlimited undo / redo (Ctrl+Z, Ctrl+Y) in the editor
+- Sprite track: swap images frame by frame over the clip time (e.g. mouth open/closed), plus a sample avatar ("+ Avatar mẫu (GIF)": closed mouth when silent, open when talking, squash & stretch)
 - Clips run on time (duration, loop) and can be amplified by voice volume ("volume boost")
 - States with global hotkeys (press / hold / toggle), automatic blinking
 - Imports veadotube mini `.veado` avatars, including the premade ones shipped with veadotube
@@ -41,7 +45,7 @@ npm run tauri build    # build installer
 | `src/veadoImport.ts` | veado states/effects -> our model and curves |
 | `src/overlay.tsx` | Browser Source page (avatar only, transparent) |
 | `src/sampleAvatar.ts` | sample avatar built from `src/assets/sample/` |
-| `src/components/` | UI: Home, Live, Stage, Sidebar, Inspector, CurveEditor, SpriteTrack, SettingsPanel |
+| `src/components/` | UI: Home, Live, Stage (+ StageGizmo: on-stage editing), Sidebar, Inspector, CurveEditor, SpriteTrack, SettingsPanel |
 
 ## OBS / Streamlabs
 

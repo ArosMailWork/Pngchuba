@@ -10,7 +10,7 @@ import {
   uid,
   useStore,
 } from "../store";
-import { AvatarState, HotkeyMode } from "../types";
+import { AvatarState, FadeKind, HotkeyMode } from "../types";
 import { NumberInput } from "./CurveEditor";
 import { SettingsPanel } from "./SettingsPanel";
 
@@ -174,10 +174,22 @@ function StatesSection() {
         <NumberInput value={st.blinkDuration} step={0.05} min={0.01}
           onChange={(v) => editCurrent((s) => void (s.blinkDuration = v))} />
       </label>
-      <label className="field" title="Thời gian chuyển động hòa trộn mượt khi đổi range">
-        Chuyển mượt giữa range (s)
+      <label className="field" title="Thời gian chuyển mượt (chuyển động + hiệu ứng hình) khi đổi range hoặc chuyển sang state này">
+        Thời gian chuyển (s)
         <NumberInput value={st.transition} step={0.05} min={0}
           onChange={(v) => editCurrent((s) => void (s.transition = v))} />
+      </label>
+      <label className="field" title="Hiệu ứng khi hình đổi lúc đổi range hoặc khi chuyển sang state này. Layer giữ nguyên hình thì chỉ chuyển động mượt.">
+        Hiệu ứng chuyển hình
+        <select
+          value={st.fade ?? "none"}
+          onChange={(e) => editCurrent((s) => void (s.fade = e.target.value as FadeKind))}
+        >
+          <option value="none">Không (đổi ngay)</option>
+          <option value="crossfade">Mờ chéo</option>
+          <option value="fadeThrough">Mờ qua (tắt rồi hiện)</option>
+          <option value="pop">Phóng (pop)</option>
+        </select>
       </label>
     </Section>
   );
@@ -263,10 +275,12 @@ function RangesSection() {
       <button
         onClick={() =>
           editCurrent((s) => {
-            const top = s.ranges[s.ranges.length - 1].threshold;
+            const topRange = s.ranges[s.ranges.length - 1];
+            const top = topRange.threshold;
             const r = { id: uid(), name: `Range ${s.ranges.length + 1}`, threshold: Math.min(0, Math.max(top, DB_MIN) + 10) };
             s.ranges.push(r);
-            s.layers.forEach((l) => (l.perRange[r.id] = newLayerRange()));
+            // start where the layer sits in the loudest range, not at the center
+            s.layers.forEach((l) => (l.perRange[r.id] = newLayerRange(undefined, l.perRange[topRange.id])));
             sorted(s);
           })
         }

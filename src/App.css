@@ -588,6 +588,23 @@ label {
   stroke: var(--blue);
   stroke-opacity: 0.7;
 }
+.out-of-clip {
+  fill: #00000040;
+}
+.preset-picker {
+  position: relative;
+}
+.preset-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+  padding: 8px;
+  background: var(--board-2);
+  border: 2px solid var(--chalk-dim);
+  border-radius: var(--wobbly-2);
+  box-shadow: 4px 6px 0 #0004;
+}
 .playhead {
   stroke: var(--pink);
   stroke-width: 2;

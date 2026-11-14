@@ -3,7 +3,7 @@
 ## Screens (`store.screen`, routed in `src/App.tsx`)
 - `home` — `components/Home.tsx`: avatar cards. Click card / "Dùng" -> `live`; "✎ Custom" -> `edit`. Buttons: new avatar, sample avatar from the gif (`gifSampleAvatar`, see `avatar-animation.md`), import `.pngtubah`/`.veado` files, import veadotube premade avatars (pick the veadotube-mini folder).
 - `live` — `components/Live.tsx`: stage + toolbar (fades until hover; "📋 Link OBS" copies `overlayUrl()` to the clipboard) + state buttons + settings popover (`SettingsPanel`).
-- `edit` — editor: Stage + Inspector (bottom dock) + Sidebar. "✓ Xong" -> live, "← Thư viện" -> home. Both reset `previewRange`.
+- `edit` — editor: Stage (editable: drag/resize/rotate layers, see `avatar-animation.md`) + Inspector (bottom dock) + Sidebar. "✓ Xong" -> live, "← Thư viện" -> home. Both reset `previewRange`. Undo/redo buttons + Ctrl+Z / Ctrl+Y.
 
 ## Library (`src-tauri/src/library.rs`)
 `<app_data_dir>/avatars/<id>.pngtubah` (JSON). Commands: `library_list` (reads only `name` + `thumb`), `library_load`, `library_save` (write tmp + rename), `library_delete`. Ids are validated `[A-Za-z0-9_-]`.

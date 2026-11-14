@@ -62,13 +62,15 @@ export function convertVeado(v: VeadoAvatar): Avatar {
     const unit = ((base?.height ?? FIT) * scale) / 2;
 
     const layer = newLayer(ranges, "Nhân vật");
-    layer.scale = +scale.toFixed(3);
+    const place = { x: 0, y: 0, rotation: 0, scale: +scale.toFixed(3) };
     layer.perRange[ranges[0].id] = {
+      ...place,
       image: asset(closed),
       blinkImage: asset(blinkClosed),
       clip: effectsClip(vs.effects_closed, unit) ?? transitionClip(vs.transitions_close, unit) ?? idle(),
     };
     layer.perRange[ranges[1].id] = {
+      ...place,
       image: asset(open) ?? asset(closed),
       blinkImage: asset(blinkOpen) ?? asset(blinkClosed),
       clip: effectsClip(vs.effects_open, unit) ?? transitionClip(vs.transitions_open, unit) ?? idle(),

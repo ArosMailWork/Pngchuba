@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { clamp, evalTrack, makeKey } from "../curve";
 import { runtime } from "../engine";
 import { PRESETS } from "../presets";
+import { beginGesture, endGesture, uid, useStore } from "../store";
 import { Clip, Keyframe, NEUTRAL, Prop, PROPS } from "../types";
 import { SpriteTrack } from "./SpriteTrack";
 
@@ -27,7 +28,11 @@ const DEFAULT_SPAN: Record<Prop, [number, number]> = {
 const H = 210;
 const PAD = { l: 44, r: 14, t: 12, b: 20 };
 
-type Drag = { kind: "key" | "in" | "out"; i: number; view: [number, number] } | null;
+type Range = [number, number];
+type Drag =
+  | { kind: "key" | "in" | "out"; i: number; view: Range }
+  | { kind: "pan"; x: number; y: number; t: Range; v: Range }
+  | null;
 
 interface Props {
   clip: Clip;
@@ -42,8 +47,12 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
   const [sel, setSel] = useState<number | null>(null);
   const [width, setWidth] = useState(600);
   const [drag, setDrag] = useState<Drag>(null);
+  // manual zoom/pan windows; null = fit automatically
+  const [zoomT, setZoomT] = useState<Range | null>(null);
+  const [zoomV, setZoomV] = useState<Range | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<SVGLineElement>(null);
+  const clipId = "plot" + useId().replace(/[^a-zA-Z0-9]/g, "");
 
   const keys = clip.tracks[prop] ?? [];
   const dur = clip.duration;
@@ -55,16 +64,23 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  useEffect(() => setSel(null), [prop]);
+  useEffect(() => {
+    setSel(null);
+    setZoomV(null);
+  }, [prop, rangeIndex]);
+  useEffect(() => setZoomT(null), [dur]);
 
-  // value window: fit keys + handles, frozen while dragging to avoid feedback
-  const view: [number, number] = drag?.view ?? fitView(keys, prop);
+  // value window: manual zoom, else fit keys + handles (frozen while dragging
+  // a key, so the view doesn't run away from the pointer)
+  const keyDrag = drag && drag.kind !== "pan" ? drag : null;
+  const viewV: Range = zoomV ?? keyDrag?.view ?? fitView(keys, prop);
+  const viewT: Range = zoomT ?? [0, dur];
   const plotW = width - PAD.l - PAD.r;
   const plotH = H - PAD.t - PAD.b;
-  const tx = (t: number) => PAD.l + (t / dur) * plotW;
-  const vy = (v: number) => PAD.t + ((view[1] - v) / (view[1] - view[0])) * plotH;
-  const toT = (x: number) => ((x - PAD.l) / plotW) * dur;
-  const toV = (y: number) => view[1] - ((y - PAD.t) / plotH) * (view[1] - view[0]);
+  const tx = (t: number) => PAD.l + ((t - viewT[0]) / (viewT[1] - viewT[0])) * plotW;
+  const vy = (v: number) => PAD.t + ((viewV[1] - v) / (viewV[1] - viewV[0])) * plotH;
+  const toT = (x: number) => viewT[0] + ((x - PAD.l) / plotW) * (viewT[1] - viewT[0]);
+  const toV = (y: number) => viewV[1] - ((y - PAD.t) / plotH) * (viewV[1] - viewV[0]);
 
   // live playhead, updated outside React
   useEffect(() => {
@@ -75,7 +91,7 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
         const live = runtime.rangeIndex === rangeIndex;
         line.style.display = live ? "" : "none";
         if (live) {
-          const x = String(PAD.l + (runtime.clipT / dur) * plotW);
+          const x = String(PAD.l + ((runtime.clipT - viewT[0]) / (viewT[1] - viewT[0])) * plotW);
           line.setAttribute("x1", x);
           line.setAttribute("x2", x);
         }
@@ -84,7 +100,29 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [rangeIndex, dur, plotW]);
+  }, [rangeIndex, viewT[0], viewT[1], plotW]);
+
+  // wheel: zoom values around the cursor; Shift/Ctrl + wheel: zoom time.
+  // Native listener because React's wheel listener is passive (can't block scrolling).
+  const zoomRef = useRef({ viewT, viewV, toT, toV });
+  zoomRef.current = { viewT, viewV, toT, toV };
+  useEffect(() => {
+    const el = wrapRef.current!;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const z = zoomRef.current;
+      const r = el.getBoundingClientRect();
+      const f = Math.exp((e.deltaY || e.deltaX) * 0.0015);
+      const around = (w: Range, c: number): Range => {
+        const span = (w[1] - w[0]) * f;
+        return span < 1e-4 || span > 1e6 ? w : [c + (w[0] - c) * f, c + (w[1] - c) * f];
+      };
+      if (e.shiftKey || e.ctrlKey) setZoomT(around(z.viewT, z.toT(e.clientX - r.left)));
+      else setZoomV(around(z.viewV, z.toV(e.clientY - r.top)));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   const setKeys = (next: Keyframe[]) => {
     const tracks = { ...clip.tracks };
@@ -101,6 +139,13 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
   const onPointerMove = (e: React.PointerEvent) => {
     if (!drag) return;
     const p = svgPoint(e);
+    if (drag.kind === "pan") {
+      const dt = ((p.x - drag.x) / plotW) * (drag.t[1] - drag.t[0]);
+      const dv = ((p.y - drag.y) / plotH) * (drag.v[1] - drag.v[0]);
+      setZoomT([drag.t[0] - dt, drag.t[1] - dt]);
+      setZoomV([drag.v[0] + dv, drag.v[1] + dv]);
+      return;
+    }
     let t = clamp(toT(p.x), 0, dur);
     if (e.shiftKey) t = Math.round(t / 0.05) * 0.05;
     const v = toV(p.y);
@@ -126,12 +171,27 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
     setKeys(next);
   };
 
+  const endDrag = () => {
+    if (drag && drag.kind !== "pan") endGesture();
+    setDrag(null);
+  };
+
   const startDrag = (e: React.PointerEvent, kind: "key" | "in" | "out", i: number) => {
     e.stopPropagation();
     if (e.button !== 0) return;
     (e.currentTarget as Element).closest("svg")!.setPointerCapture(e.pointerId);
     setSel(i);
-    setDrag({ kind, i, view });
+    beginGesture();
+    setDrag({ kind, i, view: viewV });
+  };
+
+  // right or middle button on the background: pan the view
+  const startPan = (e: React.PointerEvent) => {
+    if (e.button !== 1 && e.button !== 2) return;
+    e.preventDefault();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    const p = svgPoint(e);
+    setDrag({ kind: "pan", x: p.x, y: p.y, t: viewT, v: viewV });
   };
 
   const addKey = (e: React.MouseEvent) => {
@@ -160,18 +220,21 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
     onChange({ ...clip, duration: d, tracks, sprites });
   };
 
-  // curve path sampled from the evaluator, so it matches the runtime exactly
+  // curve path sampled from the evaluator over the visible part of the clip,
+  // so it matches the runtime exactly
   let path = "";
-  if (keys.length) {
-    const n = 160;
+  const t0 = Math.max(0, viewT[0]);
+  const t1 = Math.min(dur, viewT[1]);
+  if (keys.length && t1 > t0) {
+    const n = 200;
     for (let i = 0; i <= n; i++) {
-      const t = (i / n) * dur;
+      const t = t0 + (i / n) * (t1 - t0);
       path += `${i ? "L" : "M"}${tx(t).toFixed(1)},${vy(evalTrack(keys, t)).toFixed(1)}`;
     }
   }
 
   const selKey = sel !== null ? keys[sel] : null;
-  const neutralY = vy(NEUTRAL[prop]);
+  const zoomed = zoomT !== null || zoomV !== null;
 
   return (
     <div className="curve-editor">
@@ -193,19 +256,7 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
           Sprite{clip.sprites?.length ? " •" : ""}
         </button>
         <span className="spacer" />
-        <select
-          value=""
-          onChange={(e) => {
-            const p = PRESETS.find((x) => x.name === e.target.value);
-            // presets only carry motion, keep the layer's sprite frames
-            if (p) onChange({ ...p.make(), sprites: clip.sprites });
-          }}
-        >
-          <option value="">Preset…</option>
-          {PRESETS.map((p) => (
-            <option key={p.name}>{p.name}</option>
-          ))}
-        </select>
+        <PresetPicker clip={clip} onChange={onChange} />
       </div>
 
       <div className="row wrap">
@@ -241,58 +292,70 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
         <svg
           width={width}
           height={H}
+          onPointerDown={startPan}
+          onMouseDown={(e) => e.button === 1 && e.preventDefault() /* no autoscroll */}
           onPointerMove={onPointerMove}
-          onPointerUp={() => setDrag(null)}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
           onDoubleClick={addKey}
           onContextMenu={(e) => e.preventDefault()}
         >
+          <defs>
+            <clipPath id={clipId}>
+              <rect x={PAD.l} y={PAD.t} width={plotW} height={plotH} />
+            </clipPath>
+          </defs>
           <rect x={PAD.l} y={PAD.t} width={plotW} height={plotH} className="plot-bg" />
-          {gridTimes(dur).map((t) => (
-            <g key={t}>
-              <line x1={tx(t)} x2={tx(t)} y1={PAD.t} y2={PAD.t + plotH} className="grid" />
-              <text x={tx(t)} y={H - 5} className="axis" textAnchor="middle">
-                {+t.toFixed(2)}s
-              </text>
-            </g>
-          ))}
-          {[view[0], (view[0] + view[1]) / 2, view[1]].map((v) => (
-            <text key={v} x={PAD.l - 6} y={vy(v) + 4} className="axis" textAnchor="end">
-              {+v.toFixed(2)}
+          {gridTimes(viewT).map((t) => (
+            <text key={t} x={tx(t)} y={H - 5} className="axis" textAnchor="middle">
+              {+t.toFixed(3)}s
             </text>
           ))}
-          {neutralY >= PAD.t && neutralY <= PAD.t + plotH && (
-            <line x1={PAD.l} x2={PAD.l + plotW} y1={neutralY} y2={neutralY} className="neutral" />
-          )}
-          <path d={path} className="curve" />
-          {keys.map((k, i) => (
-            <g key={i}>
-              {sel === i && (
-                <>
-                  <line x1={tx(k.t)} y1={vy(k.v)} x2={tx(k.t + k.inT)} y2={vy(k.v + k.inV)} className="handle-line" />
-                  <line x1={tx(k.t)} y1={vy(k.v)} x2={tx(k.t + k.outT)} y2={vy(k.v + k.outV)} className="handle-line" />
-                  <circle cx={tx(k.t + k.inT)} cy={vy(k.v + k.inV)} r={5} className="handle"
-                    onPointerDown={(e) => startDrag(e, "in", i)} />
-                  <circle cx={tx(k.t + k.outT)} cy={vy(k.v + k.outV)} r={5} className="handle"
-                    onPointerDown={(e) => startDrag(e, "out", i)} />
-                </>
-              )}
-              <rect
-                x={tx(k.t) - 5}
-                y={vy(k.v) - 5}
-                width={10}
-                height={10}
-                transform={`rotate(45 ${tx(k.t)} ${vy(k.v)})`}
-                className={sel === i ? "key selected" : "key"}
-                onPointerDown={(e) => startDrag(e, "key", i)}
-                onDoubleClick={(e) => e.stopPropagation()}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  removeKey(i);
-                }}
-              />
-            </g>
+          {[viewV[0], (viewV[0] + viewV[1]) / 2, viewV[1]].map((v, i) => (
+            <text key={i} x={PAD.l - 6} y={vy(v) + 4} className="axis" textAnchor="end">
+              {fmtValue(v, viewV)}
+            </text>
           ))}
-          <line ref={playheadRef} y1={PAD.t} y2={PAD.t + plotH} className="playhead" />
+          {/* everything drawn in the plot stays inside its frame */}
+          <g clipPath={`url(#${clipId})`}>
+            {/* outside the clip's time span */}
+            <rect x={PAD.l} y={PAD.t} width={Math.max(0, tx(0) - PAD.l)} height={plotH} className="out-of-clip" />
+            <rect x={tx(dur)} y={PAD.t} width={Math.max(0, PAD.l + plotW - tx(dur))} height={plotH} className="out-of-clip" />
+            {gridTimes(viewT).map((t) => (
+              <line key={t} x1={tx(t)} x2={tx(t)} y1={PAD.t} y2={PAD.t + plotH} className="grid" />
+            ))}
+            <line x1={PAD.l} x2={PAD.l + plotW} y1={vy(NEUTRAL[prop])} y2={vy(NEUTRAL[prop])} className="neutral" />
+            <path d={path} className="curve" />
+            {keys.map((k, i) => (
+              <g key={i}>
+                {sel === i && (
+                  <>
+                    <line x1={tx(k.t)} y1={vy(k.v)} x2={tx(k.t + k.inT)} y2={vy(k.v + k.inV)} className="handle-line" />
+                    <line x1={tx(k.t)} y1={vy(k.v)} x2={tx(k.t + k.outT)} y2={vy(k.v + k.outV)} className="handle-line" />
+                    <circle cx={tx(k.t + k.inT)} cy={vy(k.v + k.inV)} r={5} className="handle"
+                      onPointerDown={(e) => startDrag(e, "in", i)} />
+                    <circle cx={tx(k.t + k.outT)} cy={vy(k.v + k.outV)} r={5} className="handle"
+                      onPointerDown={(e) => startDrag(e, "out", i)} />
+                  </>
+                )}
+                <rect
+                  x={tx(k.t) - 5}
+                  y={vy(k.v) - 5}
+                  width={10}
+                  height={10}
+                  transform={`rotate(45 ${tx(k.t)} ${vy(k.v)})`}
+                  className={sel === i ? "key selected" : "key"}
+                  onPointerDown={(e) => startDrag(e, "key", i)}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    removeKey(i);
+                  }}
+                />
+              </g>
+            ))}
+            <line ref={playheadRef} y1={PAD.t} y2={PAD.t + plotH} className="playhead" />
+          </g>
         </svg>
       </div>
 
@@ -326,17 +389,138 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
         ) : (
           <span>
             Nhấp đúp để thêm điểm · kéo điểm/tay nắm · chuột phải để xóa · Shift: bắt lưới · Alt:
-            bẻ gãy tay nắm{prop === "y" ? " · Y âm = đi lên" : ""}
+            bẻ gãy tay nắm · lăn chuột: phóng to/thu nhỏ (Shift/Ctrl: theo thời gian) · kéo chuột
+            phải/giữa: di chuyển khung{prop === "y" ? " · Y âm = đi lên" : ""}
           </span>
         )}
         <span className="spacer" />
+        <button
+          disabled={!zoomed}
+          onClick={() => {
+            setZoomT(null);
+            setZoomV(null);
+          }}
+          title="Tự căn khung nhìn vừa với đường cong"
+        >
+          ⤢ Vừa khung
+        </button>
         {keys.length > 0 && <button onClick={() => setKeys([])}>Xóa track {LABEL[prop]}</button>}
       </div>
     </div>
   );
 }
 
-function fitView(keys: Keyframe[], prop: Prop): [number, number] {
+/** Built-in + user presets: apply, save the current motion, rename/delete own ones. */
+function PresetPicker({ clip, onChange }: { clip: Clip; onChange: (clip: Clip) => void }) {
+  const custom = useStore((s) => s.customPresets);
+  const setCustom = useStore((s) => s.setCustomPresets);
+  const [naming, setNaming] = useState<string | null>(null);
+  const [managing, setManaging] = useState(false);
+
+  // presets only carry motion, keep the layer's sprite frames
+  const apply = (c: Clip) => onChange({ ...structuredClone(c), sprites: clip.sprites });
+
+  const save = () => {
+    const name = naming?.trim();
+    if (!name) return;
+    // sprites point at this avatar's images, so a shared preset keeps motion only
+    const motion: Clip = structuredClone({ ...clip, sprites: undefined });
+    delete motion.sprites;
+    const same = custom.find((p) => p.name === name);
+    if (same && !confirm(`Ghi đè preset "${name}"?`)) return;
+    setCustom(
+      same
+        ? custom.map((p) => (p.id === same.id ? { ...p, clip: motion } : p))
+        : [...custom, { id: uid(), name, clip: motion }],
+    );
+    setNaming(null);
+  };
+
+  return (
+    <div className="preset-picker">
+      <div className="row">
+        <select
+          value=""
+          onChange={(e) => {
+            const [kind, ref] = [e.target.value[0], e.target.value.slice(2)];
+            if (kind === "b") {
+              const p = PRESETS.find((x) => x.name === ref);
+              if (p) apply(p.make());
+            } else if (kind === "c") {
+              const p = custom.find((x) => x.id === ref);
+              if (p) apply(p.clip);
+            }
+          }}
+        >
+          <option value="">Preset…</option>
+          <optgroup label="Có sẵn">
+            {PRESETS.map((p) => (
+              <option key={p.name} value={"b:" + p.name}>
+                {p.name}
+              </option>
+            ))}
+          </optgroup>
+          {custom.length > 0 && (
+            <optgroup label="Của tôi">
+              {custom.map((p) => (
+                <option key={p.id} value={"c:" + p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+        <button onClick={() => setNaming(naming === null ? `Preset ${custom.length + 1}` : null)} title="Lưu animation đang chỉnh thành preset (dùng được cho mọi avatar)">
+          💾 Lưu preset
+        </button>
+        {custom.length > 0 && (
+          <button className={managing ? "active" : ""} onClick={() => setManaging(!managing)} title="Đổi tên / xóa preset của tôi">
+            ✎
+          </button>
+        )}
+      </div>
+
+      {naming !== null && (
+        <div className="row preset-pop">
+          <input
+            className="name"
+            autoFocus
+            value={naming}
+            onChange={(e) => setNaming(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape") setNaming(null);
+            }}
+          />
+          <button onClick={save} disabled={!naming.trim()}>Lưu</button>
+          <button onClick={() => setNaming(null)}>Hủy</button>
+        </div>
+      )}
+
+      {managing && custom.length > 0 && (
+        <div className="col preset-pop">
+          {custom.map((p) => (
+            <div key={p.id} className="row">
+              <input
+                className="name"
+                value={p.name}
+                onChange={(e) => setCustom(custom.map((x) => (x.id === p.id ? { ...x, name: e.target.value } : x)))}
+              />
+              <button
+                title="Xóa preset"
+                onClick={() => confirm(`Xóa preset "${p.name}"?`) && setCustom(custom.filter((x) => x.id !== p.id))}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fitView(keys: Keyframe[], prop: Prop): Range {
   let [lo, hi] = DEFAULT_SPAN[prop];
   for (const k of keys) {
     for (const v of [k.v, k.v + k.inV, k.v + k.outV]) {
@@ -348,11 +532,20 @@ function fitView(keys: Keyframe[], prop: Prop): [number, number] {
   return [lo - pad, hi + pad];
 }
 
-function gridTimes(dur: number) {
-  const step = [0.05, 0.1, 0.25, 0.5, 1, 2, 5].find((s) => dur / s <= 8) ?? 10;
+/** Tick times inside the visible window, at a readable step. */
+function gridTimes([t0, t1]: Range) {
+  const span = t1 - t0;
+  const steps = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60];
+  const step = steps.find((s) => span / s <= 8) ?? 120;
   const out = [];
-  for (let t = 0; t <= dur + 1e-9; t += step) out.push(+t.toFixed(4));
+  for (let t = Math.ceil(t0 / step - 1e-9) * step; t <= t1 + 1e-9; t += step) out.push(+t.toFixed(4));
   return out;
+}
+
+/** Axis label with as many decimals as the zoom level needs. */
+function fmtValue(v: number, [lo, hi]: Range) {
+  const digits = clamp(Math.ceil(-Math.log10(Math.max(1e-6, hi - lo))) + 2, 0, 5);
+  return String(+v.toFixed(digits));
 }
 
 const round = (v: number) => Math.round(v * 1000) / 1000;

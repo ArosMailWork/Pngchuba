@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { restartClip } from "../engine";
 import { readImageFile } from "../platform";
 import { currentState, editCurrent, uid, useStore } from "../store";
-import { Clip, Layer } from "../types";
+import { Clip, Layer, TRANSFORM_KEYS } from "../types";
 import { CurveEditor, NumberInput } from "./CurveEditor";
 
 /** Bottom dock: per-layer settings for each voice range + curve editor. */
@@ -28,6 +28,11 @@ export function Inspector() {
       l.perRange[range.id].clip = clip;
     });
 
+  const copyPlaceToAll = () =>
+    editLayer((l) => {
+      for (const r of st.ranges) for (const k of TRANSFORM_KEYS) l.perRange[r.id][k] = lr[k];
+    });
+
   const copyClipToAll = () =>
     editLayer((l) => {
       for (const r of st.ranges) l.perRange[r.id].clip = structuredClone(lr.clip);
@@ -41,16 +46,22 @@ export function Inspector() {
           value={layer.name}
           onChange={(e) => editLayer((l) => void (l.name = e.target.value))}
         />
-        {(["x", "y", "rotation", "scale"] as const).map((k) => (
+        <span className="muted small" title="Kéo hình trên khung xem trước để di chuyển, kéo góc để đổi cỡ, kéo chấm tròn để xoay">
+          Vị trí ({range.name}):
+        </span>
+        {TRANSFORM_KEYS.map((k) => (
           <label key={k}>
             {{ x: "X", y: "Y", rotation: "Xoay", scale: "Tỉ lệ" }[k]}
             <NumberInput
-              value={layer[k]}
+              value={lr[k]}
               step={k === "scale" ? 0.05 : 1}
-              onChange={(v) => editLayer((l) => void (l[k] = v))}
+              onChange={(v) => editLayer((l) => void (l.perRange[range.id][k] = v))}
             />
           </label>
         ))}
+        <button onClick={copyPlaceToAll} title="Dùng vị trí/cỡ/góc xoay này cho mọi range của layer">
+          Áp vị trí cho mọi range
+        </button>
       </div>
 
       <div className="row wrap">

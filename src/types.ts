@@ -42,8 +42,18 @@ export interface Clip {
   sprites?: SpriteKey[];
 }
 
+/** Base placement of a layer, in px from the stage center / degrees / factor. */
+export interface Transform {
+  x: number;
+  y: number;
+  rotation: number;
+  scale: number;
+}
+
+export const TRANSFORM_KEYS = ["x", "y", "rotation", "scale"] as const;
+
 /** What a layer shows/does while a given voice range is active. */
-export interface LayerRange {
+export interface LayerRange extends Transform {
   image: string | null; // asset id
   blinkImage: string | null; // asset id, used while blinking
   clip: Clip;
@@ -53,10 +63,6 @@ export interface Layer {
   id: string;
   name: string;
   visible: boolean;
-  x: number;
-  y: number;
-  rotation: number;
-  scale: number;
   perRange: Record<string, LayerRange>; // keyed by VoiceRange.id
 }
 
@@ -70,6 +76,11 @@ export interface VoiceRange {
 
 export type HotkeyMode = "press" | "hold" | "toggle";
 
+/** How images change when the range or state switches.
+ *  crossfade: old fades out while new fades in; fadeThrough: old out, then new in;
+ *  pop: new image springs in from smaller. */
+export type FadeKind = "none" | "crossfade" | "fadeThrough" | "pop";
+
 export interface AvatarState {
   id: string;
   name: string;
@@ -79,7 +90,9 @@ export interface AvatarState {
   hotkeyMode: HotkeyMode;
   blinkInterval: number; // seconds, 0 disables blinking
   blinkDuration: number; // seconds
-  transition: number; // seconds to blend motion when the range changes
+  transition: number; // seconds to blend motion / fade images when the range or state changes
+  /** image effect when entering a range of this state or this state itself (missing = none) */
+  fade?: FadeKind;
 }
 
 export interface Avatar {
@@ -89,6 +102,13 @@ export interface Avatar {
   thumb?: string;
   states: AvatarState[];
   assets: Record<string, string>; // asset id -> data URL
+}
+
+/** A user-made animation preset, shared by all avatars (motion only, no sprites). */
+export interface CustomPreset {
+  id: string;
+  name: string;
+  clip: Clip;
 }
 
 export interface Settings {

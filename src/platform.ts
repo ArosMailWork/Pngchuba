@@ -6,7 +6,7 @@ import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { runtime } from "./engine";
 import { currentState, newAvatar, uid, useStore } from "./store";
-import { Avatar, MicInfo } from "./types";
+import { Avatar, MicInfo, Transform, TRANSFORM_KEYS } from "./types";
 import { convertVeado, VeadoAvatar } from "./veadoImport";
 
 // ---------- microphone ----------
@@ -208,6 +208,14 @@ function parseAvatar(text: string): Avatar {
     throw new Error("File avatar không hợp lệ");
   }
   a.name ??= "Avatar";
+  // older files kept one placement per layer; it now lives in every range
+  for (const st of a.states)
+    for (const l of st.layers) {
+      const old = l as typeof l & Partial<Transform>;
+      for (const r of Object.values(l.perRange))
+        for (const k of TRANSFORM_KEYS) r[k] ??= old[k] ?? (k === "scale" ? 1 : 0);
+      for (const k of TRANSFORM_KEYS) delete old[k];
+    }
   return a;
 }
 
@@ -244,7 +252,8 @@ async function makeThumb(a: Avatar): Promise<string | undefined> {
   );
   // fit the union of layer boxes into the thumbnail
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  layers.forEach((l, i) => {
+  const places = layers.map((l) => l.perRange[range.id]);
+  places.forEach((l, i) => {
     const w = imgs[i].width * l.scale, h = imgs[i].height * l.scale;
     minX = Math.min(minX, l.x - w / 2); maxX = Math.max(maxX, l.x + w / 2);
     minY = Math.min(minY, l.y - h / 2); maxY = Math.max(maxY, l.y + h / 2);
@@ -257,7 +266,7 @@ async function makeThumb(a: Avatar): Promise<string | undefined> {
   g.translate(size / 2, size / 2);
   g.scale(k, k);
   g.translate(-(minX + maxX) / 2, -(minY + maxY) / 2);
-  layers.forEach((l, i) => {
+  places.forEach((l, i) => {
     const w = imgs[i].width * l.scale, h = imgs[i].height * l.scale;
     g.save();
     g.translate(l.x, l.y);
