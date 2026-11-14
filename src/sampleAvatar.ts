@@ -27,3 +27,12 @@ export function gifSampleAvatar(): Avatar {
   layer.perRange[shout.id].clip = squashClip(0.2, 1, 220);
   return a;
 }
+
+/** Sample avatars offered on the home screen; add an entry to get a new button. */
+export const SAMPLES: { label: string; title: string; make: () => Avatar }[] = [
+  {
+    label: "GIF",
+    title: "Avatar mẫu: 2 sprite miệng mở/đóng đổi liên tục + bóp giãn scale",
+    make: gifSampleAvatar,
+  },
+];

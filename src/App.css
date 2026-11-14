@@ -327,18 +327,63 @@ label {
   text-overflow: ellipsis;
 }
 
-/* ---------- editor ---------- */
+/* ---------- editor (dockview) ---------- */
 .editor {
-  display: flex;
   height: 100%;
-  background: var(--board);
 }
-.main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+.dockview-theme-chalk {
+  color-scheme: dark;
+  --dv-paneview-active-outline-color: var(--yellow);
+  --dv-tabs-and-actions-container-font-size: 17px;
+  --dv-tabs-and-actions-container-height: 34px;
+  --dv-tab-font-size: 17px;
+  --dv-drag-over-background-color: #ffe58a26;
+  --dv-drag-over-border-color: var(--yellow);
+  --dv-drag-over-border: 2px dashed var(--yellow);
+  --dv-edge-dock-indicator-color: var(--yellow);
+  --dv-tabs-container-scrollbar-color: var(--muted);
+  --dv-icon-hover-background-color: #ffffff1a;
+  --dv-overlay-z-index: 999;
+  --dv-floating-box-shadow: 6px 8px 0 #0006;
+  --dv-floating-border: 2px solid var(--chalk-dim);
+  --dv-floating-group-border: 2px solid var(--chalk-dim);
+  --dv-tab-margin: 0;
+  --dv-border-radius: 0;
+  --dv-spacing-padding: 0;
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: var(--yellow);
+  --dv-active-sash-transition-duration: 0.1s;
+  --dv-active-sash-transition-delay: 0.3s;
+  --dv-group-view-background-color: var(--board-2);
+  --dv-tabs-and-actions-container-background-color: var(--board);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--board-2);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--board);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--board-2);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--board);
+  --dv-activegroup-visiblepanel-tab-color: var(--yellow);
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--chalk);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted);
+  --dv-tab-divider-color: #ffffff22;
+  --dv-separator-border: #ffffff30;
+  --dv-paneview-header-border-color: #ffffff30;
+  background: var(--board);
+  font-family: inherit;
+}
+.dockview-theme-chalk .dv-groupview {
+  border: 2px dashed #ffffff22;
+}
+.dockview-theme-chalk .dv-tab {
+  padding: 0 12px;
+}
+.dock-panel {
+  height: 100%;
+  overflow: auto;
+}
+.dock-stage {
   position: relative;
+  height: 100%;
+  display: flex;
 }
 .editor-top {
   position: absolute;
@@ -346,36 +391,15 @@ label {
   left: 12px;
   z-index: 2;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
-.editor .stage {
+.dock-stage .stage {
   background: inherit;
 }
-.dock {
-  border-top: 2px dashed #ffffff30;
-  max-height: 58%;
-  overflow: auto;
-  background: var(--board-2);
-}
-.sidebar {
-  width: 340px;
-  background: var(--board-2);
-  border-left: 2px dashed #ffffff30;
-  overflow-y: auto;
-}
 
-.section {
-  border-bottom: 2px dashed #ffffff22;
-}
-.section summary {
-  padding: 8px 14px;
-  font-size: 19px;
-  color: var(--yellow);
-  cursor: pointer;
-  user-select: none;
-}
 .section-body {
-  padding: 4px 14px 12px;
+  padding: 10px 14px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;

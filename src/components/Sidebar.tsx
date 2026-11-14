@@ -12,31 +12,12 @@ import {
 } from "../store";
 import { AvatarState, FadeKind, HotkeyMode } from "../types";
 import { NumberInput } from "./CurveEditor";
-import { SettingsPanel } from "./SettingsPanel";
 
 const DB_MIN = -80;
 
-export function Sidebar() {
-  return (
-    <aside className="sidebar">
-      <AvatarSection />
-      <StatesSection />
-      <RangesSection />
-      <LayersSection />
-      <Section title="Cài đặt" open={false}>
-        <SettingsPanel />
-      </Section>
-    </aside>
-  );
-}
-
-export function Section({ title, children, open = true }: { title: string; children: ReactNode; open?: boolean }) {
-  return (
-    <details className="section" open={open}>
-      <summary>{title}</summary>
-      <div className="section-body">{children}</div>
-    </details>
-  );
+/** Body of one editor dock panel (the panel tab shows the title). */
+export function Section({ children }: { children: ReactNode }) {
+  return <div className="section-body">{children}</div>;
 }
 
 export function run(p: Promise<unknown>) {
@@ -45,10 +26,10 @@ export function run(p: Promise<unknown>) {
 
 // ---------------------------------------------------------------------------
 
-function AvatarSection() {
+export function AvatarSection() {
   const name = useStore((s) => s.avatar.name);
   return (
-    <Section title="Avatar">
+    <Section>
       <label className="field">
         Tên
         <input value={name} onChange={(e) => useStore.getState().edit((a) => void (a.name = e.target.value))} />
@@ -79,7 +60,7 @@ function cloneState(src: AvatarState): AvatarState {
   return st;
 }
 
-function StatesSection() {
+export function StatesSection() {
   const states = useStore((s) => s.avatar.states);
   const st = useStore((s) => currentState(s));
   const { set, edit } = useStore.getState();
@@ -115,7 +96,7 @@ function StatesSection() {
   };
 
   return (
-    <Section title="State (bộ hình)">
+    <Section>
       <div className="list">
         {states.map((s) => (
           <div key={s.id} className={"list-item" + (s.id === st.id ? " active" : "")} onClick={() => select(s.id)}>
@@ -197,7 +178,7 @@ function StatesSection() {
 
 // ---------------------------------------------------------------------------
 
-function RangesSection() {
+export function RangesSection() {
   const st = useStore((s) => currentState(s));
   const gain = useStore((s) => s.settings.gainDb);
   const meterRef = useRef<HTMLDivElement>(null);
@@ -222,7 +203,7 @@ function RangesSection() {
   const sorted = (s: AvatarState) => s.ranges.sort((a, b) => a.threshold - b.threshold);
 
   return (
-    <Section title="Voice range (khoảng âm lượng)">
+    <Section>
       <div className="meter">
         <div ref={meterRef} className="meter-fill" />
         {st.ranges.slice(1).map((r) => (
@@ -295,7 +276,7 @@ const pct = (db: number) => Math.max(0, Math.min(100, ((db - DB_MIN) / -DB_MIN) 
 
 // ---------------------------------------------------------------------------
 
-function LayersSection() {
+export function LayersSection() {
   const st = useStore((s) => currentState(s));
   const selected = useStore((s) => s.selectedLayerId);
   const set = useStore((s) => s.set);
@@ -311,7 +292,7 @@ function LayersSection() {
     });
 
   return (
-    <Section title="Layer">
+    <Section>
       <div className="list">
         {layers.map((l) => (
           <div

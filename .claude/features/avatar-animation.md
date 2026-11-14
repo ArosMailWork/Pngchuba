@@ -38,6 +38,8 @@ Applying any preset replaces motion but keeps the clip's sprite frames.
 User presets (`PresetPicker` in `CurveEditor.tsx`): `CustomPreset { id, name, clip }` in `store.customPresets`, persisted in localStorage `pngtubah.presets`, shared by all avatars (not exported with avatar files). "Lưu preset" saves the current clip without sprites (they point at one avatar's images); same name = overwrite after confirm. The pencil button = rename/delete. The preset select has groups "Có sẵn" / "Của tôi".
 
 ## Sample avatar (`src/sampleAvatar.ts`)
+Samples are listed in `SAMPLES` (`src/sampleAvatar.ts`: label, tooltip, `make()`); Home renders one "+ Avatar mẫu (<label>)" button per entry.
+
 Home "+ Avatar mẫu (GIF)" -> `gifSampleAvatar()`: images `src/assets/sample/gif-{open,closed}.png` (220 px, frames from a chibi gif, background removed), imported `?inline` as data URLs. Silent = closed + "Thở"; Nói = 0.3 s, Hét = 0.2 s loops: open-mouth image only (no sprite swap) + `squashClip(..., 220)`; scale 2 in every range. Blinking off.
 
 ## Mic (`src-tauri/src/audio.rs`)

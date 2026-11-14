@@ -8,7 +8,7 @@ import {
   listLibrary,
   openFromLibrary,
 } from "../platform";
-import { gifSampleAvatar } from "../sampleAvatar";
+import { SAMPLES } from "../sampleAvatar";
 import { Screen, useStore } from "../store";
 
 /** Library screen: pick an avatar to use, or "Custom" to edit it. */
@@ -49,15 +49,18 @@ export function Home() {
           })}>
             + Avatar mới
           </button>
-          <button
-            title="Avatar mẫu: 2 sprite miệng mở/đóng đổi liên tục + bóp giãn scale"
-            onClick={() => task("Đang tạo…", async () => {
-              await createAvatar(gifSampleAvatar());
-              set({ screen: "edit" });
-            })}
-          >
-            + Avatar mẫu (GIF)
-          </button>
+          {SAMPLES.map((sm) => (
+            <button
+              key={sm.label}
+              title={sm.title}
+              onClick={() => task("Đang tạo…", async () => {
+                await createAvatar(sm.make());
+                set({ screen: "edit" });
+              })}
+            >
+              + Avatar mẫu ({sm.label})
+            </button>
+          ))}
           <button onClick={() => task("Đang nhập…", importFiles)}>Nhập file (.pngtubah / .veado)</button>
           <button onClick={() => task("Đang nhập avatar mẫu…", importVeadoSamples)}>Nhập avatar mẫu veadotube</button>
         </div>
