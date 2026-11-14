@@ -40,6 +40,10 @@
   border: 2px dashed #ffe58acc;
   cursor: move;
 }
+.gizmo.picked {
+  border: 2px dashed #9ad7ff99;
+  pointer-events: none;
+}
 .gizmo-corner {
   position: absolute;
   width: 12px;

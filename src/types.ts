@@ -1,8 +1,8 @@
 /** Animatable layer properties. x/y/rotation are added to the layer's base
- *  transform; scaleX/scaleY/opacity are multipliers (neutral value 1). */
-export type Prop = "x" | "y" | "rotation" | "scaleX" | "scaleY" | "opacity";
+ *  transform; scaleX/scaleY/opacity/brightness are multipliers (neutral value 1). */
+export type Prop = "x" | "y" | "rotation" | "scaleX" | "scaleY" | "opacity" | "brightness";
 
-export const PROPS: Prop[] = ["x", "y", "rotation", "scaleX", "scaleY", "opacity"];
+export const PROPS: Prop[] = ["x", "y", "rotation", "scaleX", "scaleY", "opacity", "brightness"];
 
 export const NEUTRAL: Record<Prop, number> = {
   x: 0,
@@ -11,7 +11,11 @@ export const NEUTRAL: Record<Prop, number> = {
   scaleX: 1,
   scaleY: 1,
   opacity: 1,
+  brightness: 1,
 };
+
+export type Vowel = "a" | "i" | "u" | "e" | "o";
+export const VOWELS: Vowel[] = ["a", "i", "u", "e", "o"];
 
 /** A curve point. Handles are stored relative to the key: (inT <= 0, outT >= 0). */
 export interface Keyframe {
@@ -57,6 +61,8 @@ export interface LayerRange extends Transform {
   image: string | null; // asset id
   blinkImage: string | null; // asset id, used while blinking
   clip: Clip;
+  /** mouth image per detected vowel while talking (asset ids, optional) */
+  vowels?: Partial<Record<Vowel, string>>;
 }
 
 export interface Layer {
@@ -64,6 +70,10 @@ export interface Layer {
   name: string;
   visible: boolean;
   perRange: Record<string, LayerRange>; // keyed by VoiceRange.id
+  /** follows the motion of this layer (same state), e.g. mouth -> head */
+  parentId?: string | null;
+  /** nearest-neighbour scaling, keeps pixel art crisp */
+  pixelated?: boolean;
 }
 
 /** A volume band. The active range is the highest one whose threshold the
@@ -102,6 +112,8 @@ export interface Avatar {
   thumb?: string;
   states: AvatarState[];
   assets: Record<string, string>; // asset id -> data URL
+  /** only in exported files: the user's presets, merged on import */
+  presets?: CustomPreset[];
 }
 
 /** A user-made animation preset, shared by all avatars (motion only, no sprites). */
@@ -119,10 +131,17 @@ export interface Settings {
   releaseDelay: number;
   /** local server for the OBS overlay and remote control */
   serverPort: number;
+  /** switch mouth images by detected vowel (a i u e o) */
+  lipSync: boolean;
+  /** calibrated [F1, F2] (Hz) per vowel; missing = built-in average */
+  vowelProfile: Partial<Record<Vowel, [number, number]>>;
 }
 
 export interface MicInfo {
   name: string;
   sample_rate: number;
-  denoise_supported: boolean;
+  /** the open mic is a Bluetooth headset (picked explicitly) */
+  bluetooth: boolean;
+  /** the default mic is a Bluetooth headset, so it was not opened */
+  blocked: boolean;
 }

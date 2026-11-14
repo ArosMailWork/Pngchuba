@@ -6,13 +6,13 @@ import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { runtime } from "./engine";
 import { currentState, newAvatar, uid, useStore } from "./store";
-import { Avatar, MicInfo, Transform, TRANSFORM_KEYS } from "./types";
+import { Avatar, CustomPreset, MicInfo, Transform, TRANSFORM_KEYS } from "./types";
 import { convertVeado, VeadoAvatar } from "./veadoImport";
 
 // ---------- microphone ----------
 
 export const listInputDevices = () =>
-  invoke<{ id: string; name: string }[]>("list_input_devices");
+  invoke<{ id: string; name: string; bluetooth: boolean }[]>("list_input_devices");
 
 /** (Re)opens the selected mic and records the result in the store. */
 export async function restartMic() {
@@ -136,6 +136,8 @@ function publishLive() {
     currentStateId: s.currentStateId,
     gainDb: s.settings.gainDb,
     releaseDelay: s.settings.releaseDelay,
+    lipSync: s.settings.lipSync,
+    vowelProfile: s.settings.vowelProfile,
   });
   invoke("overlay_publish", { kind: "live", json }).catch(() => {});
 }
@@ -179,6 +181,8 @@ export async function importFiles(): Promise<number> {
     const avatar = path.toLowerCase().endsWith(".veado")
       ? convertVeado(await invoke<VeadoAvatar>("import_veado_file", { path }))
       : parseAvatar(await readTextFile(path));
+    mergePresets(avatar.presets);
+    delete avatar.presets;
     await saveToLibrary(uid(), avatar);
   }
   return picked.length;
@@ -199,7 +203,18 @@ export async function exportAvatar() {
     filters: [{ name: "pngtubah avatar", extensions: ["pngtubah"] }],
     defaultPath: `${a.name || "avatar"}.pngtubah`,
   });
-  if (path) await writeTextFile(path, serializeAvatar(a));
+  // the user's own presets travel with the file (merged on import)
+  const presets = useStore.getState().customPresets;
+  if (path) await writeTextFile(path, serializeAvatar(presets.length ? { ...a, presets } : a));
+}
+
+/** Adds presets from an imported file; names the user already has are kept as is. */
+function mergePresets(incoming: CustomPreset[] | undefined) {
+  if (!Array.isArray(incoming) || !incoming.length) return;
+  const { customPresets, setCustomPresets } = useStore.getState();
+  const names = new Set(customPresets.map((p) => p.name));
+  const added = incoming.filter((p) => p?.name && p.clip && !names.has(p.name)).map((p) => ({ ...p, id: uid() }));
+  if (added.length) setCustomPresets([...customPresets, ...added]);
 }
 
 function parseAvatar(text: string): Avatar {
@@ -227,6 +242,7 @@ function serializeAvatar(a: Avatar): string {
       for (const r of Object.values(l.perRange)) {
         if (r.image) used.add(r.image);
         if (r.blinkImage) used.add(r.blinkImage);
+        for (const v of Object.values(r.vowels ?? {})) if (v) used.add(v);
         for (const k of r.clip.sprites ?? []) if (k.image) used.add(k.image);
       }
   const assets = Object.fromEntries(Object.entries(a.assets).filter(([id]) => used.has(id)));
@@ -290,7 +306,11 @@ export function readImageFile(file: File): Promise<string> {
 // ---------- wiring ----------
 
 export async function initPlatform() {
-  await listen<number>("mic-level", (e) => (runtime.rawDb = e.payload));
+  await listen<{ db: number; f1: number; f2: number }>("mic-level", (e) => {
+    runtime.rawDb = e.payload.db;
+    runtime.f1 = e.payload.f1;
+    runtime.f2 = e.payload.f2;
+  });
   await listen<string>("ws-message", (e) => handleControlMessage(e.payload));
 
   restartMic();
@@ -311,7 +331,9 @@ export async function initPlatform() {
     if (
       s.currentStateId !== prev.currentStateId ||
       s.settings.gainDb !== prev.settings.gainDb ||
-      s.settings.releaseDelay !== prev.settings.releaseDelay
+      s.settings.releaseDelay !== prev.settings.releaseDelay ||
+      s.settings.lipSync !== prev.settings.lipSync ||
+      s.settings.vowelProfile !== prev.settings.vowelProfile
     ) {
       publishLive();
     }

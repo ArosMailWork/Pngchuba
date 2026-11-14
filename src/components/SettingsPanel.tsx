@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { listInputDevices, overlayUrl, restartMic, setNoiseReduction, startServer } from "../platform";
 import { useStore } from "../store";
 import { NumberInput } from "./CurveEditor";
+import { VowelSettings } from "./VowelSettings";
 
 /** Mic + OBS settings, shared by the live screen and the editor. */
 export function SettingsPanel() {
@@ -9,7 +10,7 @@ export function SettingsPanel() {
   const mic = useStore((s) => s.mic);
   const micError = useStore((s) => s.micError);
   const setSettings = useStore((s) => s.setSettings);
-  const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
+  const [devices, setDevices] = useState<{ id: string; name: string; bluetooth: boolean }[]>([]);
   const [serverError, setServerError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -33,16 +34,36 @@ export function SettingsPanel() {
           restartMic();
         }}
       >
-        <option value="">(Mặc định của hệ thống)</option>
+        <option value="">(Mặc định của hệ thống, bỏ qua tai nghe Bluetooth)</option>
         {devices.map((d) => (
           <option key={d.id} value={d.id}>
             {d.name}
+            {d.bluetooth ? " — Bluetooth" : ""}
           </option>
         ))}
       </select>
       <div className="muted small">
-        {micError ? `Lỗi mic: ${micError}` : mic ? `${mic.name} · ${mic.sample_rate} Hz` : "Đang mở mic…"}
+        {micError
+          ? `Lỗi mic: ${micError}`
+          : mic?.blocked
+            ? "Chưa mở mic"
+            : mic
+              ? `${mic.name} · ${mic.sample_rate} Hz`
+              : "Đang mở mic…"}
       </div>
+      {mic?.blocked && (
+        <div className="warn small">
+          Mic mặc định là tai nghe Bluetooth ({mic.name}) nên app không tự mở: mở nó sẽ làm Windows chuyển tai nghe
+          sang chế độ đàm thoại (âm mono, rè) cho mọi thứ bạn nghe. Hãy chọn mic khác (USB, laptop), hoặc chọn hẳn tai
+          nghe trong danh sách nếu chấp nhận.
+        </div>
+      )}
+      {mic?.bluetooth && !mic.blocked && (
+        <div className="warn small">
+          Đang dùng mic của tai nghe Bluetooth: trong lúc app mở, tai nghe nghe sẽ bị rè/đục (chế độ đàm thoại). Đóng
+          app hoặc chọn mic khác thì tai nghe trở lại bình thường.
+        </div>
+      )}
       <label className="check">
         <input
           type="checkbox"
@@ -54,9 +75,6 @@ export function SettingsPanel() {
         />
         Lọc ồn
       </label>
-      {settings.noiseReduction && mic && !mic.denoise_supported && (
-        <div className="warn small">Lọc ồn chỉ chạy khi mic để 48000 Hz (chỉnh trong Sound settings của Windows).</div>
-      )}
       <label className="field">
         Gain mic (dB)
         <NumberInput value={settings.gainDb} step={1} onChange={(v) => setSettings({ gainDb: v })} />
@@ -66,6 +84,8 @@ export function SettingsPanel() {
         <NumberInput value={settings.releaseDelay} step={0.05} min={0}
           onChange={(v) => setSettings({ releaseDelay: v })} />
       </label>
+
+      <VowelSettings />
 
       <h4>📺 OBS / Streamlabs</h4>
       <div className="small">

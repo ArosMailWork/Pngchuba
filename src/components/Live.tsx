@@ -9,6 +9,7 @@ export function Live() {
   const avatar = useStore((s) => s.avatar);
   const current = useStore((s) => currentState(s).id);
   const set = useStore((s) => s.set);
+  const micBlocked = useStore((s) => !!s.mic?.blocked);
   const [showSettings, setShowSettings] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -32,6 +33,11 @@ export function Live() {
         <button className={showSettings ? "active" : ""} onClick={() => setShowSettings(!showSettings)}>
           ⚙ Cài đặt
         </button>
+        {micBlocked && (
+          <button className="warn" onClick={() => setShowSettings(true)} title="Mic mặc định là tai nghe Bluetooth nên chưa mở. Bấm để chọn mic.">
+            ⚠ Chưa mở mic (tai nghe Bluetooth)
+          </button>
+        )}
       </div>
 
       {avatar.states.length > 1 && (

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { layerImg } from "../engine";
-import { beginGesture, currentState, editCurrent, endGesture, useStore } from "../store";
+import { beginGesture, currentState, editCurrent, endGesture, selectedLayerIds, useStore } from "../store";
 import { AvatarState, Transform } from "../types";
 
 type Kind = "move" | "scale" | "rotate";
@@ -10,6 +10,8 @@ interface Drag {
   rangeId: string;
   start: { x: number; y: number };
   base: Transform;
+  /** moving a multi-selection: every selected layer's start placement */
+  group: Map<string, Transform>;
 }
 
 /** Stage point relative to the stage center, in px (same space as layer x/y). */
@@ -66,6 +68,15 @@ export function useStageEditing() {
     const rangeId = s.selectedRangeId ?? st.ranges[0].id;
     const lr = st.layers.find((l) => l.id === layerId)?.perRange[rangeId];
     if (!lr) return;
+    // dragging one layer of the multi-selection moves all of them
+    const picked = selectedLayerIds(s);
+    const together = kind === "move" && picked.length > 1 && picked.includes(layerId);
+    const group = new Map<string, Transform>();
+    if (together)
+      for (const l of st.layers) {
+        const r = l.perRange[rangeId];
+        if (picked.includes(l.id) && r) group.set(l.id, { x: r.x, y: r.y, rotation: r.rotation, scale: r.scale });
+      }
     const stage = (e.currentTarget as Element).closest(".stage")!;
     stage.setPointerCapture(e.pointerId);
     drag.current = {
@@ -74,10 +85,11 @@ export function useStageEditing() {
       rangeId,
       start: stagePoint(e, stage),
       base: { x: lr.x, y: lr.y, rotation: lr.rotation, scale: lr.scale },
+      group,
     };
     beginGesture();
     // show the range being placed, whatever the mic is doing
-    s.set({ selectedLayerId: layerId, previewRange: true });
+    s.set({ selectedLayerId: layerId, previewRange: true, ...(together ? {} : { selectedLayerIds: [layerId] }) });
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -86,7 +98,15 @@ export function useStageEditing() {
     const st = currentState(s);
     const rangeId = s.selectedRangeId ?? st.ranges[0].id;
     const id = hitLayer(st, rangeId, stagePoint(e, e.currentTarget));
-    if (id) start(e, "move", id);
+    if (!id) return;
+    if (e.ctrlKey || e.shiftKey || e.metaKey) {
+      // add/remove from the selection without moving anything
+      const picked = selectedLayerIds(s);
+      const next = picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id];
+      if (next.length) s.set({ selectedLayerIds: next, selectedLayerId: next.includes(s.selectedLayerId ?? "") ? s.selectedLayerId : id });
+      return;
+    }
+    start(e, "move", id);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -110,6 +130,16 @@ export function useStageEditing() {
       next.rotation = e.shiftKey ? Math.round(deg / 15) * 15 : Math.round(deg * 10) / 10;
     }
     editCurrent((st) => {
+      if (d.group.size) {
+        const dx = (next.x ?? b.x) - b.x;
+        const dy = (next.y ?? b.y) - b.y;
+        for (const l of st.layers) {
+          const from = d.group.get(l.id);
+          const lr = l.perRange[d.rangeId];
+          if (from && lr) Object.assign(lr, { x: from.x + dx, y: from.y + dy });
+        }
+        return;
+      }
       const lr = st.layers.find((l) => l.id === d.layerId)?.perRange[d.rangeId];
       if (lr) Object.assign(lr, next);
     });
@@ -124,8 +154,39 @@ export function useStageEditing() {
   return { start, handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp } };
 }
 
+/** Thin outline of a layer that is also selected (multi-selection). */
+function PickedOutline({ layerId }: { layerId: string }) {
+  const st = useStore((s) => currentState(s));
+  const rangeId = useStore((s) => s.selectedRangeId);
+  const assets = useStore((s) => s.avatar.assets);
+  const lr = rangeId ? st.layers.find((l) => l.id === layerId)?.perRange[rangeId] : undefined;
+  const imageId = lr?.image ?? lr?.clip.sprites?.find((k) => k.image)?.image ?? null;
+  const size = useImageSize(imageId ? assets[imageId] : undefined);
+  if (!lr || !size) return null;
+  return (
+    <div
+      className="gizmo picked"
+      style={{
+        width: size.w * lr.scale,
+        height: size.h * lr.scale,
+        transform: `translate(-50%, -50%) translate(${lr.x}px, ${lr.y}px) rotate(${lr.rotation}deg)`,
+      }}
+    />
+  );
+}
+
 /** Selection box with resize corners and a rotate knob, at the layer's base placement. */
 export function StageGizmo({ onStart }: { onStart: (e: React.PointerEvent, kind: Kind, layerId: string) => void }) {
+  const others = useStore((s) => selectedLayerIds(s).filter((id) => id !== s.selectedLayerId).join(","));
+  return (
+    <>
+      {others && others.split(",").map((id) => <PickedOutline key={id} layerId={id} />)}
+      <MainGizmo onStart={onStart} />
+    </>
+  );
+}
+
+function MainGizmo({ onStart }: { onStart: (e: React.PointerEvent, kind: Kind, layerId: string) => void }) {
   const st = useStore((s) => currentState(s));
   const layerId = useStore((s) => s.selectedLayerId);
   const rangeId = useStore((s) => s.selectedRangeId);

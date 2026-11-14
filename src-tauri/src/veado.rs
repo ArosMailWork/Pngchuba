@@ -20,6 +20,8 @@ pub struct VeadoEffect {
 #[derive(Serialize)]
 pub struct VeadoState {
     name: String,
+    /// state flags: 0x1 pixelated, 0x2 blink synced, 0x4 restart animation
+    flags: u32,
     /// AIMG ids (0 = none): closed, open, blink closed, blink open
     images: [u32; 4],
     blink_duration: f64,
@@ -230,7 +232,7 @@ fn parse_avatar(bytes: &[u8], name: String) -> Result<VeadoAvatar, String> {
 fn parse_state(body: &[u8]) -> Result<VeadoState, String> {
     let mut r = Reader::new(body);
     let name = r.string()?;
-    let _flags = r.u32()?;
+    let flags = r.u32()?;
     let mut ids = [0u32; 8];
     for id in &mut ids {
         *id = r.u32()?;
@@ -249,6 +251,7 @@ fn parse_state(body: &[u8]) -> Result<VeadoState, String> {
     let mode = String::from_utf8_lossy(r.bytes(4).unwrap_or(b"PRES")).into_owned();
     Ok(VeadoState {
         name,
+        flags,
         images: [ids[4], ids[5], ids[6], ids[7]],
         blink_duration,
         blink_min,

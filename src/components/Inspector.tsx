@@ -1,8 +1,9 @@
+import { useShallow } from "zustand/react/shallow";
 import { useRef } from "react";
 import { restartClip } from "../engine";
 import { readImageFile } from "../platform";
-import { currentState, editCurrent, uid, useStore } from "../store";
-import { Clip, Layer, TRANSFORM_KEYS } from "../types";
+import { currentState, editCurrent, selectedLayerIds, uid, useStore } from "../store";
+import { AvatarState, Clip, Layer, TRANSFORM_KEYS, VOWELS } from "../types";
 import { CurveEditor, NumberInput } from "./CurveEditor";
 
 /** Bottom dock: per-layer settings for each voice range + curve editor. */
@@ -13,6 +14,8 @@ export function Inspector() {
   const preview = useStore((s) => s.previewRange);
   const assets = useStore((s) => s.avatar.assets);
   const set = useStore((s) => s.set);
+  const multi = useStore(useShallow((s) => selectedLayerIds(s)));
+  const copiedClip = useStore((s) => s.copiedClip);
 
   const layer = st.layers.find((l) => l.id === layerId);
   const rangeIndex = Math.max(0, st.ranges.findIndex((r) => r.id === rangeId));
@@ -38,8 +41,40 @@ export function Inspector() {
       for (const r of st.ranges) l.perRange[r.id].clip = structuredClone(lr.clip);
     });
 
+  const others = multi.filter((id) => id !== layer.id);
+  /** Copies this layer's animation to the other selected layers (this range or all). */
+  const clipToSelected = (allRanges: boolean) =>
+    editCurrent((s) => {
+      for (const l of s.layers)
+        if (others.includes(l.id))
+          for (const r of allRanges ? st.ranges : [range])
+            l.perRange[r.id].clip = structuredClone(layer.perRange[r.id].clip);
+    });
+
+  /** Pastes the copied animation into this range of every selected layer. Sprite
+   *  frames pointing at images this avatar doesn't have are dropped. */
+  const paste = () => {
+    if (!copiedClip) return;
+    const clip = structuredClone(copiedClip);
+    clip.sprites = clip.sprites?.filter((k) => !k.image || assets[k.image]);
+    editCurrent((s) => {
+      for (const l of s.layers) if (multi.includes(l.id)) l.perRange[range.id].clip = structuredClone(clip);
+    });
+  };
+
   return (
     <div className="inspector">
+      {multi.length > 1 && (
+        <div className="row wrap multi-bar">
+          <span className="muted">Đang chọn {multi.length} layer:</span>
+          <button onClick={() => clipToSelected(false)} title={`Chép animation range "${range.name}" của "${layer.name}" sang các layer đang chọn`}>
+            Áp animation range này cho {others.length} layer kia
+          </button>
+          <button onClick={() => clipToSelected(true)} title={`Chép animation mọi range của "${layer.name}" sang các layer đang chọn`}>
+            Áp mọi range cho {others.length} layer kia
+          </button>
+        </div>
+      )}
       <div className="row wrap">
         <input
           className="name"
@@ -83,6 +118,43 @@ export function Inspector() {
         <button onClick={copyClipToAll} title="Dùng animation này cho mọi range của layer">
           Áp animation cho mọi range
         </button>
+        <button onClick={() => set({ copiedClip: structuredClone(lr.clip) })} title="Copy animation của range này">
+          📋 Copy
+        </button>
+        <button
+          disabled={!copiedClip}
+          onClick={paste}
+          title={multi.length > 1 ? `Dán animation vào range này của ${multi.length} layer đang chọn` : "Dán animation vào range này"}
+        >
+          📥 Dán{multi.length > 1 ? ` (${multi.length})` : ""}
+        </button>
+      </div>
+
+      <div className="row wrap">
+        <label title="Layer này chuyển động theo layer cha (ví dụ miệng theo đầu), cộng thêm animation riêng của nó">
+          Gắn vào layer
+          <select
+            value={layer.parentId ?? ""}
+            onChange={(e) => editLayer((l) => void (l.parentId = e.target.value || null))}
+          >
+            <option value="">(không)</option>
+            {st.layers
+              .filter((l) => l.id !== layer.id && !isDescendant(st, l.id, layer.id))
+              .map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label className="check" title="Phóng to không bị nhòe, hợp với hình pixel art">
+          <input
+            type="checkbox"
+            checked={!!layer.pixelated}
+            onChange={(e) => editLayer((l) => void (l.pixelated = e.target.checked))}
+          />
+          Giữ nét pixel
+        </label>
       </div>
 
       <div className="row wrap">
@@ -104,6 +176,7 @@ export function Inspector() {
               for (const r of st.ranges) {
                 l.perRange[r.id].image = lr.image;
                 l.perRange[r.id].blinkImage = lr.blinkImage;
+                l.perRange[r.id].vowels = structuredClone(lr.vowels);
               }
             })
           }
@@ -112,19 +185,56 @@ export function Inspector() {
         </button>
       </div>
 
+      <div className="row wrap" title="Khi đang nói và app nghe ra nguyên âm, layer hiện hình tương ứng (ô trống = giữ hình thường). Bật/hiệu chỉnh ở Cài đặt > Khẩu hình.">
+        <span className="muted">Khẩu hình ({range.name}):</span>
+        {VOWELS.map((v) => {
+          const id = lr.vowels?.[v];
+          return (
+            <ImageSlot
+              key={v}
+              compact
+              label={v.toUpperCase()}
+              src={id ? assets[id] : undefined}
+              onPick={(asset) =>
+                editLayer((l) => {
+                  const r = l.perRange[range.id];
+                  const next = { ...r.vowels };
+                  if (asset) next[v] = asset;
+                  else delete next[v];
+                  r.vowels = next;
+                })
+              }
+            />
+          );
+        })}
+      </div>
+
       <CurveEditor clip={lr.clip} onChange={setClip} rangeIndex={rangeIndex} />
     </div>
   );
+}
+
+/** True when `id` sits somewhere under `ancestor` in the parent chain. */
+function isDescendant(st: AvatarState, id: string, ancestor: string): boolean {
+  let cur = st.layers.find((l) => l.id === id);
+  for (let i = 0; cur?.parentId && i < 16; i++) {
+    if (cur.parentId === ancestor) return true;
+    cur = st.layers.find((l) => l.id === cur!.parentId);
+  }
+  return false;
 }
 
 function ImageSlot({
   label,
   src,
   onPick,
+  compact = false,
 }: {
   label: string;
   src?: string;
   onPick: (assetId: string | null) => void;
+  /** small square with the label under it (vowel mouths) */
+  compact?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const pick = async (file?: File) => {
@@ -134,6 +244,33 @@ function ImageSlot({
     useStore.getState().edit((a) => void (a.assets[id] = data));
     onPick(id);
   };
+  const fileInput = (
+    <input
+      ref={input}
+      type="file"
+      accept="image/png,image/gif,image/webp,image/apng,image/jpeg"
+      hidden
+      onChange={(e) => {
+        pick(e.target.files?.[0]);
+        e.target.value = "";
+      }}
+    />
+  );
+  if (compact)
+    return (
+      <div className="vowel-slot">
+        <div
+          className="thumb"
+          onClick={() => input.current?.click()}
+          onContextMenu={(e) => (e.preventDefault(), onPick(null))}
+          title={src ? "Bấm để đổi hình, chuột phải để bỏ" : "Bấm để chọn hình"}
+        >
+          {src ? <img src={src} alt="" /> : <span>+</span>}
+        </div>
+        <span className="small">{label}</span>
+        {fileInput}
+      </div>
+    );
   return (
     <div className="image-slot">
       <div className="thumb" onClick={() => input.current?.click()}>

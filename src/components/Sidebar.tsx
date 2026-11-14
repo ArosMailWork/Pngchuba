@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { runtime } from "../engine";
 import { accelFromEvent, exportAvatar, prettyAccel } from "../platform";
@@ -7,10 +8,11 @@ import {
   newLayer,
   newLayerRange,
   newState,
+  selectedLayerIds,
   uid,
   useStore,
 } from "../store";
-import { AvatarState, FadeKind, HotkeyMode } from "../types";
+import { AvatarState, FadeKind, HotkeyMode, Layer } from "../types";
 import { NumberInput } from "./CurveEditor";
 
 const DB_MIN = -80;
@@ -50,9 +52,11 @@ function cloneState(src: AvatarState): AvatarState {
   st.id = uid();
   st.name = src.name + " (bản sao)";
   st.hotkey = null;
+  const layerMap = new Map(st.layers.map((l) => [l.id, uid()]));
   st.ranges.forEach((r) => (r.id = rangeMap.get(r.id)!));
   st.layers.forEach((l) => {
-    l.id = uid();
+    l.id = layerMap.get(l.id)!;
+    if (l.parentId) l.parentId = layerMap.get(l.parentId) ?? null;
     l.perRange = Object.fromEntries(
       Object.entries(l.perRange).map(([k, v]) => [rangeMap.get(k) ?? k, v]),
     );
@@ -85,6 +89,7 @@ export function StatesSection() {
     const next = useStore.getState().avatar.states.find((s) => s.id === id)!;
     set({
       currentStateId: id,
+      selectedLayerIds: [],
       selectedLayerId: next.layers[0]?.id ?? null,
       selectedRangeId: next.ranges[0].id,
     });
@@ -276,10 +281,23 @@ const pct = (db: number) => Math.max(0, Math.min(100, ((db - DB_MIN) / -DB_MIN) 
 
 // ---------------------------------------------------------------------------
 
+/** Nesting depth of a layer in the parent chain (for indentation). */
+function depthOf(st: AvatarState, id: string): number {
+  let d = 0;
+  let cur = st.layers.find((l) => l.id === id);
+  while (cur?.parentId && d < 16) {
+    cur = st.layers.find((l) => l.id === cur!.parentId);
+    d++;
+  }
+  return d;
+}
+
 export function LayersSection() {
   const st = useStore((s) => currentState(s));
   const selected = useStore((s) => s.selectedLayerId);
+  const multi = useStore(useShallow((s) => selectedLayerIds(s)));
   const set = useStore((s) => s.set);
+  const [renaming, setRenaming] = useState<string | null>(null);
 
   // shown top-most first, stored bottom-most first
   const layers = [...st.layers].reverse();
@@ -291,14 +309,61 @@ export function LayersSection() {
       [s.layers[i], s.layers[j]] = [s.layers[j], s.layers[i]];
     });
 
+  /** Click = select one, Ctrl = add/remove, Shift = range from the current one. */
+  const click = (e: React.MouseEvent, id: string) => {
+    if (e.ctrlKey || e.metaKey) {
+      const next = multi.includes(id) ? multi.filter((x) => x !== id) : [...multi, id];
+      if (!next.length) return;
+      set({ selectedLayerIds: next, selectedLayerId: next.includes(selected ?? "") ? selected : next[next.length - 1] });
+    } else if (e.shiftKey && selected) {
+      const order = layers.map((l) => l.id);
+      const [a, b] = [order.indexOf(selected), order.indexOf(id)].sort((x, y) => x - y);
+      set({ selectedLayerIds: order.slice(a, b + 1), selectedLayerId: id });
+    } else {
+      set({ selectedLayerIds: [id], selectedLayerId: id });
+    }
+  };
+
+  const duplicate = () => {
+    const ids = new Set(multi);
+    const copyOf = new Map<string, string>();
+    st.layers.forEach((l) => ids.has(l.id) && copyOf.set(l.id, uid()));
+    // cloned from the committed state: immer drafts can't be structuredClone'd
+    const copies = new Map<string, Layer>();
+    for (const l of st.layers) {
+      if (!ids.has(l.id)) continue;
+      const c = structuredClone(l);
+      c.id = copyOf.get(l.id)!;
+      c.name = l.name + " (bản sao)";
+      // copied together with its parent: follow the copy
+      if (c.parentId && copyOf.has(c.parentId)) c.parentId = copyOf.get(c.parentId);
+      copies.set(l.id, c);
+    }
+    editCurrent((s) => {
+      s.layers = s.layers.flatMap((l) => (copies.has(l.id) ? [l, copies.get(l.id)!] : [l]));
+    });
+    const newIds = [...copyOf.values()];
+    set({ selectedLayerIds: newIds, selectedLayerId: newIds[newIds.length - 1] ?? null });
+  };
+
+  const remove = () => {
+    const gone = new Set(multi);
+    editCurrent((s) => {
+      s.layers = s.layers.filter((l) => !gone.has(l.id));
+      for (const l of s.layers) if (l.parentId && gone.has(l.parentId)) l.parentId = null;
+    });
+    set({ selectedLayerId: null, selectedLayerIds: [] });
+  };
+
   return (
     <Section>
       <div className="list">
         {layers.map((l) => (
           <div
             key={l.id}
-            className={"list-item" + (l.id === selected ? " active" : "")}
-            onClick={() => set({ selectedLayerId: l.id })}
+            className={"list-item" + (l.id === selected ? " active" : multi.includes(l.id) ? " picked" : "")}
+            onClick={(e) => click(e, l.id)}
+            title="Ctrl+click: chọn thêm · Shift+click: chọn liền một dải · nhấp đúp tên để đổi tên"
           >
             <input
               type="checkbox"
@@ -309,30 +374,52 @@ export function LayersSection() {
                 editCurrent((s) => void (s.layers.find((x) => x.id === l.id)!.visible = e.target.checked))
               }
             />
-            <span className="grow">{l.name}</span>
+            {renaming === l.id ? (
+              <input
+                className="grow"
+                autoFocus
+                defaultValue={l.name}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={(e) => {
+                  const name = e.target.value.trim();
+                  if (name) editCurrent((s) => void (s.layers.find((x) => x.id === l.id)!.name = name));
+                  setRenaming(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Escape") setRenaming(null);
+                }}
+              />
+            ) : (
+              <span
+                className="grow"
+                style={{ paddingLeft: depthOf(st, l.id) * 14 }}
+                onDoubleClick={() => setRenaming(l.id)}
+              >
+                {l.parentId ? "↳ " : ""}
+                {l.name}
+              </span>
+            )}
             <button onClick={(e) => (e.stopPropagation(), move(l.id, 1))} title="Lên trên">▲</button>
             <button onClick={(e) => (e.stopPropagation(), move(l.id, -1))} title="Xuống dưới">▼</button>
           </div>
         ))}
       </div>
-      <div className="row">
+      <div className="row wrap">
         <button
           onClick={() => {
             const layer = newLayer(st.ranges, `Layer ${st.layers.length + 1}`);
             editCurrent((s) => void s.layers.push(layer));
-            set({ selectedLayerId: layer.id });
+            set({ selectedLayerId: layer.id, selectedLayerIds: [layer.id] });
           }}
         >
           + Thêm layer
         </button>
-        <button
-          disabled={!selected}
-          onClick={() => {
-            editCurrent((s) => void (s.layers = s.layers.filter((l) => l.id !== selected)));
-            set({ selectedLayerId: null });
-          }}
-        >
-          Xóa layer
+        <button disabled={!multi.length} onClick={duplicate} title="Nhân bản layer đang chọn (giữ hình, vị trí, animation)">
+          Nhân bản
+        </button>
+        <button disabled={!multi.length} onClick={remove}>
+          Xóa layer{multi.length > 1 ? ` (${multi.length})` : ""}
         </button>
       </div>
     </Section>

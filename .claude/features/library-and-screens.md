@@ -7,7 +7,8 @@
 
 ## Editor dock (`components/EditorLayout.tsx`)
 Drag a tab onto a panel edge = split, onto a tab bar = group as tabs; drag the gap between groups = resize. Panels cannot be closed (tab close button hidden), so nothing gets lost.
-Floating ("nhổ ra"): Shift+drag a tab, or right-click a tab > "Nhổ ra (cửa sổ nổi)" (`addFloatingGroup`, 420x360 at 80,80). A floating window moves by its title strip and docks back by dragging its tab onto the grid, or right-click > "Gắn lại vào khung" (`group.api.moveTo({ position: "right" })`). Right-click > "Phóng to" / "Thu nhỏ lại" maximizes a grid panel (`tabMenu` in `EditorLayout.tsx`). Floating windows are part of the saved layout. Popout to real OS windows is not used (Tauri webview + engine refs across documents).
+Floating ("nhổ ra"): Shift+drag a tab, or right-click a tab > "Nhổ ra (cửa sổ nổi)" (`addFloatingGroup`, 420x360 at 80,80). A floating window moves by its title strip and docks back by dragging its tab onto the grid, or right-click > "Gắn lại vào khung" (`group.api.moveTo({ position: "right" })`). Right-click > "Phóng to" / "Thu nhỏ lại" maximizes a grid panel (`tabMenu` in `EditorLayout.tsx`). Floating windows are part of the saved layout. Right-click > "Tách ra cửa sổ riêng" = dockview popout (`addPopoutGroup`, page `public/popout.html`): a real OS window (second monitor). Tauri blocks `window.open` by default, so the main window is created in Rust (`lib.rs` setup, `"create": false` in `tauri.conf.json`) with `on_new_window` allowing only URLs ending in `/popout.html`. Closing the popout window docks the panel back; "Gắn lại vào khung" also works from floating/popout groups.
+The editor (`EditorLayout`, dockview, curve editor) is lazy-loaded (`React.lazy` in `App.tsx`) so the home/live screens and the main chunk stay small.
 Tauri: `dragDropEnabled: false` on the main window (`tauri.conf.json`), otherwise WebView2 swallows HTML5 drag & drop and tabs cannot be dropped/snapped. The app does not use Tauri file-drop events. Layout (`api.toJSON()`) is saved to localStorage `pngtubah.layout` on every layout change; restored on open. If the saved layout fails to parse or misses a panel id (older version), the default layout is built instead. "⊞ Bố cục mặc định" clears the saved layout and rebuilds the default: stage top-left, Inspector below it, right column Layer/State/Avatar tabs above Voice range/Cài đặt tabs. Theme: `dockview-theme-chalk` CSS variables in `App.css` (colors from the chalkboard theme). Hidden tabs are unmounted (dockview default), the engine handles layer `<img>` refs coming and going.
 
 ## Library (`src-tauri/src/library.rs`)
@@ -17,7 +18,7 @@ Tauri: `dragDropEnabled: false` on the main window (`tauri.conf.json`), otherwis
 Avatar edits (same `libraryId` as before) are saved 1 s after the last change. Opening an avatar does not trigger a save. Each save regenerates `avatar.thumb` (160 px canvas render of state 0 / range 0) and drops unused assets (`serializeAvatar`).
 
 ## Mic status
-`restartMic()` stores `mic` / `micError` in the store; `SettingsPanel` only displays them (it can be mounted in both live and edit screens).
+`restartMic()` stores `mic` / `micError` in the store (`mic.blocked` = default mic is a Bluetooth headset, not opened; see Bluetooth rule in `avatar-animation.md`); `SettingsPanel` only displays them (it can be mounted in both live and edit screens).
 
 ## Theme
 Doodle chalkboard in `src/App.css` (wobbly border-radius, Patrick Hand font from `@fontsource/patrick-hand/400.css`). Must use the combined CSS: it declares `unicode-range`; the per-subset files don't, and then Vietnamese glyphs render decomposed. Stage CSS lives in `components/Stage.css` so the overlay page gets it too.

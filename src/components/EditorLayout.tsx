@@ -86,17 +86,22 @@ function buildDefault(a: DockviewApi) {
 
 /** Right-click on a tab: float it out of the grid, dock it back, maximize. */
 function tabMenu({ panel, group, api: a }: GetTabContextMenuItemsParams) {
-  const floating = group.api.location.type === "floating";
+  const where = group.api.location.type;
+  if (where !== "grid") {
+    return [{ label: "Gắn lại vào khung", action: () => group.api.moveTo({ position: "right" }) }];
+  }
   return [
-    floating
-      ? { label: "Gắn lại vào khung", action: () => group.api.moveTo({ position: "right" }) }
-      : {
-          label: "Nhổ ra (cửa sổ nổi)",
-          action: () => a.addFloatingGroup(panel, { position: { left: 80, top: 80 }, width: 420, height: 360 }),
-        },
+    {
+      label: "Nhổ ra (cửa sổ nổi)",
+      action: () => a.addFloatingGroup(panel, { position: { left: 80, top: 80 }, width: 420, height: 360 }),
+    },
+    {
+      // a real OS window (e.g. for a second monitor); closing it docks the panel back
+      label: "Tách ra cửa sổ riêng",
+      action: () => void a.addPopoutGroup(panel, { popoutUrl: "/popout.html" }),
+    },
     {
       label: panel.api.isMaximized() ? "Thu nhỏ lại" : "Phóng to",
-      disabled: floating,
       action: () => (panel.api.isMaximized() ? panel.api.exitMaximized() : panel.api.maximize()),
     },
   ];

@@ -1,13 +1,15 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 // combined file: declares unicode-range per subset so Vietnamese glyphs are used
 import "@fontsource/patrick-hand/400.css";
-import { EditorLayout } from "./components/EditorLayout";
 import { Home } from "./components/Home";
 import { Live } from "./components/Live";
 import { startEngine } from "./engine";
 import { initPlatform } from "./platform";
 import { useStore } from "./store";
 import "./App.css";
+
+// the editor (dock, curve editor...) is only loaded when opened
+const EditorLayout = lazy(() => import("./components/EditorLayout").then((m) => ({ default: m.EditorLayout })));
 
 let initialized = false;
 
@@ -35,5 +37,9 @@ export default function App() {
 
   if (screen === "home") return <Home />;
   if (screen === "live") return <Live />;
-  return <EditorLayout />;
+  return (
+    <Suspense fallback={null}>
+      <EditorLayout />
+    </Suspense>
+  );
 }

@@ -13,10 +13,14 @@ Lightweight PNGtuber app (Tauri 2 + React + Rust), inspired by veadotube mini.
 - Sprite track: swap images frame by frame over the clip time (e.g. mouth open/closed), plus sample avatars: "+ Avatar mẫu (GIF)" (closed mouth when silent, open when talking, squash & stretch); more samples = more entries in `SAMPLES` (`src/sampleAvatar.ts`)
 - Clips run on time (duration, loop) and can be amplified by voice volume ("volume boost")
 - States with global hotkeys (press / hold / toggle), automatic blinking
-- Imports veadotube mini `.veado` avatars, including the premade ones shipped with veadotube
+- Imports veadotube mini `.veado` avatars, including the premade ones shipped with veadotube (all effects combined, darken, pixelated)
+- Exported avatar files carry your animation presets
 - OBS / Streamlabs Browser Source page with true transparency (no chroma key, no UI)
-- RNNoise noise reduction, local websocket remote control
-- Doodle chalkboard UI; Unity-like dockable editor panels (drag tabs to snap/split/group, Shift+drag or right-click to float a panel, resize, layout is remembered)
+- Vowel lip-sync: mouth image per vowel (a i u e o) per layer and range, detected from the mic (formants), optional calibration to your voice
+- Layer tools: parent/child layers (mouth follows head), multi-select (list + stage), duplicate, double-click rename, copy/paste animations and single curves, brightness curve, crisp pixel-art scaling
+- RNNoise noise reduction (any mic sample rate), local websocket remote control
+- Bluetooth-safe mic: a Bluetooth headset mic is never opened as "default" (it would drop the headset to hands-free quality); pick it explicitly if you want it
+- Doodle chalkboard UI; Unity-like dockable editor panels (drag tabs to snap/split/group, Shift+drag or right-click to float a panel, pop a panel out to its own window, resize, layout is remembered)
 
 ## Download
 
@@ -34,11 +38,13 @@ npm run tauri build    # build installer
 
 | Path | Role |
 | --- | --- |
-| `src-tauri/src/audio.rs` | mic capture (cpal), RNNoise, emits `mic-level` (dBFS) at ~60 Hz |
+| `src-tauri/src/audio.rs` | mic capture (cpal), RNNoise (resampled to 48 kHz), emits `mic-level` `{db,f1,f2}` at ~60 Hz |
+| `src-tauri/src/formants.rs` | resampler + formant tracker (LPC) for vowel lip-sync |
 | `src-tauri/src/server.rs` | local server: OBS overlay page + feed, remote control websocket |
 | `src-tauri/src/library.rs` | avatar library files in app data |
 | `src-tauri/src/veado.rs` | veadotube `.veado` importer (VDD image codec, APNG output) |
 | `src/types.ts` | avatar data model |
+| `src/vowels.ts` | vowel classification from formants, default profile, calibration helper |
 | `src/curve.ts` | bezier keyframe evaluation |
 | `src/engine.ts` | per-frame runtime: range picking, blink, animation, writes DOM transforms |
 | `src/platform.ts` | Tauri glue: mic, hotkeys, server, library, import/export, autosave |

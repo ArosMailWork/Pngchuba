@@ -40,9 +40,10 @@ impl Default for ServerState {
 
 impl ServerState {
     /// Called from the audio thread ~60 times per second.
-    pub fn publish_level(&self, db: f32) {
+    pub fn publish_level(&self, db: f32, f1: f32, f2: f32) {
         if self.overlay_tx.receiver_count() > 0 {
-            let _ = self.overlay_tx.send(format!(r#"{{"type":"level","db":{db:.2}}}"#).into());
+            let msg = format!(r#"{{"type":"level","db":{db:.2},"f1":{f1:.0},"f2":{f2:.0}}}"#);
+            let _ = self.overlay_tx.send(msg.into());
         }
     }
 }

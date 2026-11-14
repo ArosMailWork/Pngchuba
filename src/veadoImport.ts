@@ -4,9 +4,9 @@
  * (silent -> closed mouth image, talking -> open mouth image) and one layer.
  * veado effects are approximated with keyframe curves so they stay editable.
  */
-import { makeKey } from "./curve";
+import { evalTrack, makeKey } from "./curve";
 import { newLayer, uid } from "./store";
-import { Avatar, AvatarState, Clip, HotkeyMode, Keyframe, VoiceRange } from "./types";
+import { Avatar, AvatarState, Clip, HotkeyMode, Keyframe, Prop, VoiceRange } from "./types";
 
 interface VeadoEffect {
   kind: string;
@@ -16,6 +16,7 @@ interface VeadoEffect {
 
 interface VeadoState {
   name: string;
+  flags: number; // 0x1 = pixelated
   images: [number, number, number, number]; // closed, open, blink closed, blink open
   blink_duration: number;
   blink_min: number;
@@ -62,6 +63,7 @@ export function convertVeado(v: VeadoAvatar): Avatar {
     const unit = ((base?.height ?? FIT) * scale) / 2;
 
     const layer = newLayer(ranges, "Nhân vật");
+    if (vs.flags & 1) layer.pixelated = true;
     const place = { x: 0, y: 0, rotation: 0, scale: +scale.toFixed(3) };
     layer.perRange[ranges[0].id] = {
       ...place,
@@ -94,39 +96,89 @@ export function convertVeado(v: VeadoAvatar): Avatar {
 
 const idle = (): Clip => ({ duration: 1, loop: true, volumeBoost: 0, tracks: {} });
 
-/** Loop clip from the first supported state effect (others are dropped). */
+/** Loop clip from all active state effects, played together. */
 function effectsClip(effects: VeadoEffect[], unit: number): Clip | null {
-  for (const e of effects) {
-    if (!e.active) continue;
-    const [a = 0, b = 0, c = 0] = e.values;
-    switch (e.kind) {
-      case "wavemove": {
-        // amount X, amount Y, period
-        const T = Math.max(0.05, c || 1);
-        return loop(T, { x: wave(a * unit, T, 0), y: wave(b * unit, T, 1) });
-      }
-      case "waverotate": {
-        // amount (radians), period
-        const T = Math.max(0.05, b || 1);
-        return loop(T, { rotation: wave((a * 180) / Math.PI, T, 0) });
-      }
-      case "jump": {
-        // amount X, amount Y, velocity: continuous hopping
-        const d = 1 / Math.max(0.1, c || 2);
-        return loop(2 * d, {
-          y: [...hop(b * unit, 0, d), ...hop(b * unit, d, d).slice(1)],
-          x: a ? [makeKey(0, -a * unit, 2 * d), makeKey(d, a * unit, 2 * d), makeKey(2 * d, -a * unit, 2 * d)] : [],
-        });
-      }
-      case "randommove": {
-        // amount, velocity: jittery shake
-        const T = 1;
-        const n = Math.round(Math.min(16, Math.max(4, b || 8)));
-        return loop(T, { x: jitter(a * unit, T, n), y: jitter(a * unit, T, n) });
-      }
+  const parts = effects.filter((e) => e.active).map((e) => effectPart(e, unit)).filter((p): p is Part => !!p);
+  if (!parts.length) return null;
+  return parts.length === 1 ? loop(parts[0].T, parts[0].tracks) : combine(parts);
+}
+
+interface Part {
+  T: number;
+  tracks: Clip["tracks"];
+}
+
+/** One veado effect as looping curves (null = unsupported). */
+function effectPart(e: VeadoEffect, unit: number): Part | null {
+  const [a = 0, b = 0, c = 0, d = 0] = e.values;
+  switch (e.kind) {
+    case "wavemove": {
+      // amount X, amount Y, period, period offset
+      const T = Math.max(0.05, c || 1);
+      return { T, tracks: { x: wave(a * unit, T, d), y: wave(b * unit, T, d + 0.25) } };
+    }
+    case "waverotate": {
+      // amount (radians), period, period offset
+      const T = Math.max(0.05, b || 1);
+      return { T, tracks: { rotation: wave((a * 180) / Math.PI, T, c) } };
+    }
+    case "jump": {
+      // amount X, amount Y, velocity: continuous hopping
+      const h = 1 / Math.max(0.1, c || 2);
+      return {
+        T: 2 * h,
+        tracks: {
+          y: [...hop(b * unit, 0, h), ...hop(b * unit, h, h).slice(1)],
+          x: a ? [makeKey(0, -a * unit, 2 * h), makeKey(h, a * unit, 2 * h), makeKey(2 * h, -a * unit, 2 * h)] : [],
+        },
+      };
+    }
+    case "randommove": {
+      // amount, velocity: jittery shake
+      const n = Math.round(Math.min(16, Math.max(4, b || 8)));
+      return { T: 1, tracks: { x: jitter(a * unit, 1, n), y: jitter(a * unit, 1, n + 1) } };
+    }
+    case "darken": {
+      // amount 0..1 -> constant brightness
+      const v = round(Math.max(0, 1 - a));
+      return { T: 1, tracks: { brightness: [makeKey(0, v, 1)] } };
     }
   }
   return null;
+}
+
+/** Several looping effects in one clip: a duration they all fit into
+ *  (or the longest one), curves resampled and added together. */
+function combine(parts: Part[]): Clip {
+  const longest = Math.max(...parts.map((p) => p.T));
+  let D = longest;
+  for (let k = 1; k <= 8; k++) {
+    const d = longest * k;
+    if (parts.every((p) => Math.abs(d / p.T - Math.round(d / p.T)) < 0.02)) {
+      D = d;
+      break;
+    }
+  }
+  const props = [...new Set(parts.flatMap((p) => Object.keys(p.tracks)))] as Prop[];
+  const n = Math.min(200, Math.max(24, Math.ceil(D / 0.04)));
+  const tracks: Clip["tracks"] = {};
+  for (const prop of props) {
+    const mult = prop === "brightness";
+    const at = (t: number) =>
+      parts.reduce((acc, p) => {
+        const ks = p.tracks[prop];
+        if (!ks?.length) return acc;
+        const v = evalTrack(ks, t % p.T);
+        return mult ? acc * v : acc + v;
+      }, mult ? 1 : 0);
+    const h = D / n / 3;
+    tracks[prop] = Array.from({ length: n + 1 }, (_, i) => {
+      const t = (i * D) / n;
+      const slope = (at(Math.min(D, t + 1e-3)) - at(Math.max(0, t - 1e-3))) / 2e-3;
+      return { t, v: round(at(t)), inT: -h, inV: round(-slope * h), outT: h, outV: round(slope * h) };
+    });
+  }
+  return loop(D, tracks);
 }
 
 /** One-shot hop when entering the range (veado "jump" transition: amount, velocity). */
@@ -144,12 +196,13 @@ function loop(T: number, tracks: Clip["tracks"]): Clip {
   return { duration: +T.toFixed(3), loop: true, volumeBoost: 0, tracks: clean };
 }
 
-/** Sine (phase 0) or cosine (phase 1) over one period: 5 keys, handles follow the slope. */
-function wave(A: number, T: number, phase: 0 | 1): Keyframe[] {
+/** A * sin(2pi (t/T + shift)) over one period: 5 keys, handles follow the slope.
+ *  shift is in periods (0.25 = cosine). */
+function wave(A: number, T: number, shift: number): Keyframe[] {
   if (!A) return [];
   const h = T * 0.09;
   return [0, 1, 2, 3, 4].map((i) => {
-    const a = (i * Math.PI) / 2 + (phase * Math.PI) / 2;
+    const a = (i * Math.PI) / 2 + 2 * Math.PI * shift;
     const v = A * Math.sin(a);
     const slope = ((2 * Math.PI * A) / T) * Math.cos(a);
     return { t: (i * T) / 4, v: round(v), inT: -h, inV: round(-slope * h), outT: h, outV: round(slope * h) };

@@ -2702,6 +2702,7 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-global-shortcut",
  "tokio",
+ "windows",
 ]
 
 [[package]]

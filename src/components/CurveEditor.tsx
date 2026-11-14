@@ -13,6 +13,7 @@ const LABEL: Record<Prop, string> = {
   scaleX: "Giãn X",
   scaleY: "Giãn Y",
   opacity: "Độ mờ",
+  brightness: "Độ sáng",
 };
 
 /** Minimum visible value window per property, so flat curves still have room. */
@@ -23,6 +24,7 @@ const DEFAULT_SPAN: Record<Prop, [number, number]> = {
   scaleX: [0.85, 1.15],
   scaleY: [0.85, 1.15],
   opacity: [0, 1],
+  brightness: [0, 1.2],
 };
 
 const H = 210;
@@ -55,6 +57,7 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
   const clipId = "plot" + useId().replace(/[^a-zA-Z0-9]/g, "");
 
   const keys = clip.tracks[prop] ?? [];
+  const copiedTrack = useStore((s) => s.copiedTrack);
   const dur = clip.duration;
 
   useEffect(() => {
@@ -404,6 +407,26 @@ export function CurveEditor({ clip, onChange, rangeIndex }: Props) {
         >
           ⤢ Vừa khung
         </button>
+        {keys.length > 0 && (
+          <button
+            onClick={() => useStore.getState().set({ copiedTrack: { keys: structuredClone(keys), duration: dur } })}
+            title="Copy đường cong này (dán được vào thuộc tính/layer/range khác)"
+          >
+            📋 Copy track
+          </button>
+        )}
+        {copiedTrack && (
+          <button
+            onClick={() => {
+              // fit the copied curve to this clip's duration
+              const r = dur / copiedTrack.duration;
+              setKeys(copiedTrack.keys.map((k) => ({ ...k, t: k.t * r, inT: k.inT * r, outT: k.outT * r })));
+            }}
+            title="Thay đường cong này bằng track đã copy (co giãn theo thời gian clip)"
+          >
+            📥 Dán track
+          </button>
+        )}
         {keys.length > 0 && <button onClick={() => setKeys([])}>Xóa track {LABEL[prop]}</button>}
       </div>
     </div>

@@ -4,7 +4,9 @@ import { PRESETS } from "./presets";
 import {
   Avatar,
   AvatarState,
+  Clip,
   CustomPreset,
+  Keyframe,
   Layer,
   LayerRange,
   MicInfo,
@@ -64,6 +66,8 @@ export const DEFAULT_SETTINGS: Settings = {
   gainDb: 0,
   releaseDelay: 0.15,
   serverPort: 7878,
+  lipSync: true,
+  vowelProfile: {},
 };
 
 const SETTINGS_KEY = "pngtubah.settings";
@@ -117,6 +121,8 @@ interface Store {
   /** live state shown on stage (also the one being edited) */
   currentStateId: string;
   selectedLayerId: string | null;
+  /** multi-selection (Ctrl/Shift click); only counts when it contains selectedLayerId */
+  selectedLayerIds: string[];
   selectedRangeId: string | null;
   /** force the selected range on stage, so animations can be tuned silently */
   previewRange: boolean;
@@ -128,6 +134,9 @@ interface Store {
   canUndo: boolean;
   canRedo: boolean;
   customPresets: CustomPreset[];
+  /** copied animation (whole clip) and copied curve (one track) */
+  copiedClip: Clip | null;
+  copiedTrack: { keys: Keyframe[]; duration: number } | null;
 
   /** undoable avatar change */
   edit: (fn: (a: Avatar) => void) => void;
@@ -162,6 +171,7 @@ export const useStore = create<Store>((set) => ({
   currentStateId: initialAvatar.states[0].id,
   selectedLayerId: initialAvatar.states[0].layers[0].id,
   selectedRangeId: initialAvatar.states[0].ranges[1].id,
+  selectedLayerIds: [],
   previewRange: false,
   screen: "home",
   libraryId: null,
@@ -170,6 +180,8 @@ export const useStore = create<Store>((set) => ({
   canUndo: false,
   canRedo: false,
   customPresets: loadPresets(),
+  copiedClip: null,
+  copiedTrack: null,
 
   edit: (fn) =>
     set((s) => {
@@ -225,6 +237,14 @@ export const useStore = create<Store>((set) => ({
     }),
   set: (patch) => set(patch),
 }));
+
+/** Layers selected in the current state: the multi-selection when it includes
+ *  the primary layer, otherwise just the primary one. */
+export function selectedLayerIds(s = useStore.getState()): string[] {
+  const st = currentState(s);
+  const ids = s.selectedLayerId && s.selectedLayerIds.includes(s.selectedLayerId) ? s.selectedLayerIds : [s.selectedLayerId];
+  return ids.filter((id): id is string => !!id && st.layers.some((l) => l.id === id));
+}
 
 export function currentState(s = useStore.getState()): AvatarState {
   return s.avatar.states.find((x) => x.id === s.currentStateId) ?? s.avatar.states[0];
